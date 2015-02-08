@@ -351,7 +351,7 @@ class Table(object):
         self._last_item_map[item_id] = fields
         #self.items[item_id] = self.item_factory(fields)
         #self.on_update.fire(item_id, self.items[item_id])
-        self.on_update.fire(item_id, self.item_ids, fields)
+        self.on_update.fire(item_id, fields, self.item_ids)
 
 
 class LsClient(object):
