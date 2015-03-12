@@ -4,6 +4,7 @@
 A lightweight Python library that can be used to connect to the IG Markets REST and Stream APIs with a LIVE or DEMO account.
 
 You can use the IG Markets HTTP / REST API to submit trade orders, open positions, close positions and view market sentiment.
+
 You can use the IG Markets STREAM API to get realtime price, balance...
 
 IG Markets provide Retail Spread Betting and CFD accounts for trading Equities, Forex, Commodities, Indices and much more.
@@ -18,7 +19,7 @@ femtotrader (https://github.com/femtotrader/ig-markets-stream-api-python-library
 Configuration
 -------------
 
-You can find an example conmfiguration file in the tests directory (demo.yaml) and modify it with your account information.
+You can find an example configuration file in the tests directory (demo.yaml) and modify it with your account information.
 
 ```yaml
 username: USERNAME
@@ -61,6 +62,12 @@ How To Use The Stream Library
 -----------------------------
 
 Using this library to connect to the IG Markets API is extremely easy.
+
+More details on schema and available streams at : http://labs.ig.com/streaming-api-guide
+
+Note: on a normal account, you're limited to 40 simultaneous subscriptions per connection.
+
+Example code:
 
 
 ```python
