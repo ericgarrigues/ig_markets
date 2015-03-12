@@ -41,7 +41,7 @@ The code sample below shows you how to connect to the API and retrieve all open 
 ```python
 import yaml
 
-from rest_client import IGRestClient
+from ig_markets.rest_client import IGRestClient
 
 stream = file('demo.yaml', 'r')
 config = yaml.load(stream)
