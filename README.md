@@ -32,11 +32,11 @@ acc_number: ABC123
 How To Use The REST Library
 ---------------------------
 
-Using this library to connect to the IG Markets API is extremely easy. All you need to do is import the IGService class, create an instance, and call the methods you wish to use. 
+Using this library to connect to the IG Markets API is extremely easy. All you need to do is import the IGRestClient class, create an instance, and call the methods you wish to use. 
 There is a method for each endpoint exposed by their API.
 The code sample below shows you how to connect to the API and retrieve all open positions for the active account.
 
-**Note:** The secure session with IG is established when you create an instance of the IGService class.
+**Note:** The secure session with IG is established when you create an instance of the IGRestClient class.
 
 ```python
 import yaml
