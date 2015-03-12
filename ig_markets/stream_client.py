@@ -28,11 +28,8 @@ import urllib
 import urllib2
 import urlparse
 import json
-import logging
 
 import requests
-
-import sys
 
 import datetime
 
