@@ -28,16 +28,11 @@ class IGRestClient:
     IG_PASSWORD = None
 
     def __init__(self, username, password, api_key, api_url):
-        """Constructor, calls the method required to connect to the API (accepts acc_type = LIVE or DEMO)"""
+        """Constructor, calls the method required to connect to the API"""
         self.API_KEY = api_key
         self.IG_USERNAME = username
         self.IG_PASSWORD = password
         self.BASE_URL = api_url
-
-        # try:
-        #     self.BASE_URL = self.D_BASE_URL[acc_type.lower()]
-        # except:
-        #     raise(Exception("Invalid account type specified, please provide LIVE or DEMO."))
 
         self.BASIC_HEADERS = { 
             'X-IG-API-KEY': self.API_KEY,

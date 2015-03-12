@@ -2,5 +2,4 @@ username: USERNAME
 password: PASSWORD
 api_key: API_KEY
 api_url: https://demo-api.ig.com/gateway/deal
-acc_type: DEMO # LIVE / DEMO
 acc_number: ABC123

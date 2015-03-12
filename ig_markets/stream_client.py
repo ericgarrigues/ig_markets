@@ -27,11 +27,13 @@ import os
 import urllib
 import urllib2
 import urlparse
+import json
 import logging
 
 import requests
 
-# import json
+import sys
+
 import datetime
 
 date_time = datetime.datetime.now()
@@ -354,7 +356,7 @@ class Table(object):
         self.on_update.fire(item_id, fields, self.item_ids)
 
 
-class LsClient(object):
+class IGLsClient(object):
     """Manages a single Lightstreamer session. Callers are expected to:
 
         * Create an instance and subscribe to on_state().
@@ -374,14 +376,13 @@ class LsClient(object):
                                   """Subscribe `func` to heartbeats. The function is called with no
                                   arguments each time the connection receives any data.""")
 
-    def __init__(self, base_url, work_queue=None, content_length=None,
-                 timeout_grace=None, polling_ms=None):
+    def __init__(self, work_queue=None, content_length=None, timeout_grace=None, polling_ms=None):
 
         """Create an instance using `base_url` as the root of the Lightstreamer
         server. If `timeout_grace` is given, indicates number of seconds grace
         to allow after an expected keepalive fails to arrive before considering
         the connection dead."""
-        self.base_url = base_url
+        self.base_url = None
         self._work_queue = work_queue or WorkQueue()
         self.content_length = content_length
         self._timeout_grace = timeout_grace or 1.0
@@ -395,6 +396,51 @@ class LsClient(object):
         self._state = STATE_DISCONNECTED
         self._control_queue = collections.deque()
         self._thread = None
+
+    def get_account_info(self, username, password, api_key, api_url):
+        r = requests.post(self.__get_url(api_url),
+                          data=json.dumps(self.__get_payload(username, password)),
+                          headers=self.__get_headers(api_key))
+
+        print r
+
+        cst = r.headers['cst']
+        xsecuritytoken = r.headers['x-security-token']
+        # fullheaders = {'content-type': 'application/json; charset=UTF-8',
+        #                'Accept': 'application/json; charset=UTF-8', 'X-IG-API-KEY': self.api_key,
+        #                'CST': cst, 'X-SECURITY-TOKEN': xsecuritytoken }
+
+        body = r.json()
+        lightstreamerEndpoint = body[u'lightstreamerEndpoint']
+        # clientId = body[u'clientId']
+        accounts = body[u'accounts']
+
+        # Depending on how many accounts you have with IG the '0' may need
+        # to change to select the correct one (spread bet, CFD account etc)
+        accountId = accounts[0][u'accountId']
+
+        account_xst = 'CST-'+cst+'|XST-'+xsecuritytoken
+
+        return lightstreamerEndpoint, accountId, account_xst
+
+    def __get_base_url(self, lsendpoint):
+        return lsendpoint + "/lightstreamer/"
+
+    def __get_url(self, api_url):
+        return api_url + "/session"
+
+    def __get_headers(self, api_key):
+        headers = {'content-type': 'application/json; charset=UTF-8',
+                   'Accept': 'application/json; charset=UTF-8',
+                   'X-IG-API-KEY': api_key}
+
+        return headers
+
+    def __get_payload(self, username, password):
+        payload = {'identifier': username,
+                   'password': password}
+
+        return payload
 
     def _set_state(self, state):
         """Emit an event indicating the connection state has changed, taking
@@ -586,13 +632,15 @@ class LsClient(object):
         self._thread.setDaemon(True)
         self._thread.start()
 
-    def create_session(self, username, adapter_set, password=None,
-                       max_bandwidth_kbps=None, content_length=None,
-                       keepalive_ms=None):
+    def create_session(self, username=None, password=None, api_key=None, api_url=None, adapter_set='',
+                       max_bandwidth_kbps=None, content_length=None, keepalive_ms=None):
         """Begin authenticating with Lightstreamer and start the receive
         thread.
 
-        `username` is the Lightstreamer username (required).
+        `username` is the username (required).
+        `password` is the user's password (required).
+        `api_key` is the user's account api key (required).
+        `api_url` is the broker api url (required).
         `adapter_set` is the adapter set name to use (required).
         `password` is the Lightstreamer password.
         `max_bandwidth_kbps` indicates the highest transmit rate of the
@@ -604,19 +652,28 @@ class LsClient(object):
             messages when the server otherwise has nothing to say. Server's
             default is used if unspecified.
         """
-        assert self._state == STATE_DISCONNECTED,\
-            "create_session() called while state %r" % self._state
-        self._work_queue.push(self._create_session_impl, {
-            'LS_user': username,
-            # 'LS_adapter_set': adapter_set,
-            'LS_report_info': 'true',
-            'LS_polling': 'true',
-            'LS_polling_millis': self._polling_ms,
-            'LS_password': password,
-            'LS_requested_max_bandwidth': max_bandwidth_kbps,
-            'LS_content_length': content_length,
-            'LS_keepalive_millis': keepalive_ms
-        })
+        if username and password and api_key and api_url:
+            lsendpoint, account_id, account_xst = self.get_account_info(username, password, api_key, api_url)
+            self.base_url = self.__get_base_url(lsendpoint)
+
+            assert self._state == STATE_DISCONNECTED,\
+                "create_session() called while state %r" % self._state
+            self._work_queue.push(self._create_session_impl, {
+                'LS_user': account_id,
+                # 'LS_adapter_set': adapter_set,
+                'LS_report_info': 'true',
+                'LS_polling': 'true',
+                'LS_polling_millis': self._polling_ms,
+                'LS_password': account_xst,
+                'LS_requested_max_bandwidth': max_bandwidth_kbps,
+                'LS_content_length': content_length,
+                'LS_keepalive_millis': keepalive_ms
+            })
+
+            return account_id
+
+        else:
+            raise "username, password, api_key and api_url MUST be set"
 
     def join(self):
         """Wait for the receive thread to terminate."""
@@ -677,7 +734,7 @@ class LsClient(object):
         with self._lock:
             self._send_control({
                 'LS_op': OP_START,
-                'LS_table': tble.table_id
+                'LS_table': table.table_id
             })
 
     def delete(self, table):
