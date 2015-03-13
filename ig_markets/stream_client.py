@@ -19,11 +19,10 @@ from __future__ import absolute_import
 
 import Queue
 import collections
-import logging
+# import logging
 import socket
 import threading
 import time
-import os
 import urllib
 import urllib2
 import urlparse
@@ -35,15 +34,15 @@ import datetime
 
 date_time = datetime.datetime.now()
 
-if not os.path.exists("Logs"):
-    os.makedirs("Logs")
-
-LOG = logging.getLogger('lightstreamer')
-hdlr = logging.FileHandler('Logs/log-%s.log' % date_time.strftime('%Y-%m-%d_%H-%M-%S'))
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-hdlr.setFormatter(formatter)
-LOG.addHandler(hdlr)
-LOG.setLevel(logging.DEBUG)
+# if not os.path.exists("Logs"):
+#     os.makedirs("Logs")
+#
+# LOG = logging.getLogger('lightstreamer')
+# hdlr = logging.FileHandler('Logs/log-%s.log' % date_time.strftime('%Y-%m-%d_%H-%M-%S'))
+# formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+# hdlr.setFormatter(formatter)
+# LOG.addHandler(hdlr)
+# LOG.setLevel(logging.DEBUG)
 
 
 # Minimum time to wait between retry attempts, in seconds. Subsequent
@@ -195,8 +194,9 @@ def run_and_log(func, *args, **kwargs):
     try:
         func(*args, **kwargs)
         return True
-    except Exception:
-        LOG.exception('While invoking %r(*%r, **%r)', func, args, kwargs)
+    except Exception, e:
+        print e
+        # LOG.exception('While invoking %r(*%r, **%r)', func, args, kwargs)
 
 
 def dispatch(lst, *args, **kwargs):
@@ -212,7 +212,7 @@ class WorkQueue(object):
     the queue as requested."""
     def __init__(self):
         """Create an instance."""
-        self.log = logging.getLogger('WorkQueue')
+        # self.log = logging.getLogger('WorkQueue')
         self.queue = Queue.Queue()
         self.thread = threading.Thread(target=self._main)
         self.thread.setDaemon(True)
@@ -232,7 +232,7 @@ class WorkQueue(object):
         while True:
             tup = self.queue.get()
             if tup is None:
-                self.log.info('Got shutdown semaphore; exitting.')
+                # self.log.info('Got shutdown semaphore; exitting.')
                 return
             func, args, kwargs = tup
             run_and_log(func, *args, **kwargs)
@@ -265,6 +265,7 @@ def event_property(name, doc):
     """Return a property that evaluates to an Event, which is stored in the
     class instance on first access."""
     var_name = '_' + name
+
     def fget(self):
         event = getattr(self, var_name, None)
         if not event:
@@ -338,6 +339,7 @@ class Table(object):
         #: the particular item. Note that if no updates have been received
         #: for a specified item ID, it will have no entry here.
         self.items = {}
+
         client._register(self)
 
     def _dispatch_update(self, item_id, item):
@@ -373,7 +375,7 @@ class IGLsClient(object):
                                   """Subscribe `func` to heartbeats. The function is called with no
                                   arguments each time the connection receives any data.""")
 
-    def __init__(self, work_queue=None, content_length=None, timeout_grace=None, polling_ms=None):
+    def __init__(self, work_queue=None, content_length=None, timeout_grace=None, polling_ms=None, debug=False):
 
         """Create an instance using `base_url` as the root of the Lightstreamer
         server. If `timeout_grace` is given, indicates number of seconds grace
@@ -386,26 +388,33 @@ class IGLsClient(object):
         self._polling_ms = 10000
         self._lock = threading.Lock()
         self._control_url = None
-        self.log = logging.getLogger('lightstreamer.LsClient')
         self._table_id = 0
         self._table_map = {}
         self._session = {}
         self._state = STATE_DISCONNECTED
         self._control_queue = collections.deque()
         self._thread = None
+        self.logger = None
+        self.debug = debug
+
+    def set_logger(self, callback):
+        self.logger = callback
+
+    def log(self, msg, level='info'):
+        if self.logger:
+            if level == 'debug':
+                if self.debug:
+                    self.logger(msg, level)
+            else:
+                self.logger(msg, level)
 
     def get_account_info(self, username, password, api_key, api_url):
         r = requests.post(self.__get_url(api_url),
                           data=json.dumps(self.__get_payload(username, password)),
                           headers=self.__get_headers(api_key))
 
-        print r
-
         cst = r.headers['cst']
         xsecuritytoken = r.headers['x-security-token']
-        # fullheaders = {'content-type': 'application/json; charset=UTF-8',
-        #                'Accept': 'application/json; charset=UTF-8', 'X-IG-API-KEY': self.api_key,
-        #                'CST': cst, 'X-SECURITY-TOKEN': xsecuritytoken }
 
         body = r.json()
         lightstreamerEndpoint = body[u'lightstreamerEndpoint']
@@ -449,7 +458,6 @@ class IGLsClient(object):
         if state == STATE_DISCONNECTED:
             self._control_queue.clear()
 
-        self.log.debug('New state: %r', state)
         self.on_state.fire(state)
 
     def _get_request_timeout(self):
@@ -466,7 +474,7 @@ class IGLsClient(object):
             return requests.post(url, data=data)
         
         except urllib2.HTTPError, e:
-            self.log.error('HTTP %d for %r', e.getcode(), url)
+            self.log('HTTP %d for %r' % (e.getcode(), url), 'error')
             return e
 
     def _dispatch_update(self, line):
@@ -477,14 +485,14 @@ class IGLsClient(object):
             return
         bits = line.rstrip('\r\n').split('|')
         if bits[0].count(',') < 1:
-            self.log.warning('Dropping strange update line: %r', line)
+            self.log('Dropping strange update line: %r', line, 'warning')
             return
 
         table_info = bits[0].split(',')
         table_id, item_id = map(int, table_info[:2])
         table = self._table_map.get(table_id)
         if not table:
-            self.log.debug('Unknown table %r; dropping row', table_id)
+            self.log('Unknown table %r; dropping row', table_id, 'debug')
             return
 
         if table_info[-1] == 'EOS':
@@ -502,14 +510,14 @@ class IGLsClient(object):
         self.on_heartbeat.fire()
 
         if line.startswith('PROBE'):
-            self.log.debug('Received server probe.')
+            self.log('Received server probe.', 'debug')
             return self.R_OK
         elif line.startswith('LOOP'):
-            self.log.debug('Server indicated length exceeded; reconnecting.')
+            self.log('Server indicated length exceeded; reconnecting.', 'debug')
             return self.R_RECONNECT
         elif line.startswith('END'):
             cause = CAUSE_MAP.get(line.split()[-1], line)
-            self.log.info('Session permanently closed; cause: %r', cause)
+            self.log('Session permanently closed; cause: %r' % cause, 'info')
             return self.R_END
         else:
             # Update event.
@@ -519,7 +527,7 @@ class IGLsClient(object):
     def _do_recv(self):
         """Connect to bind_session.txt and dispatch messages until the server
         tells us to stop or an error occurs."""
-        self.log.debug('Attempting to connect..')
+        self.log('Attempting to connect..', 'debug')
         self._set_state(STATE_CONNECTING)
         sessionnum = encode_dict({'LS_session': self._session['SessionId']})
         req = requests.post(self.control_url+"bind_session.txt", data=sessionnum, stream=True)
@@ -527,8 +535,8 @@ class IGLsClient(object):
         self._parse_and_raise_status(req, line_it)
         self._parse_session_info(line_it)
         self._set_state(STATE_CONNECTED)
-        self.log.debug('Server reported Content-length: %s',
-            req.headers.get('Content-length'))
+        self.log('Server reported Content-length: %s' % req.headers.get('Content-length'), 'debug')
+
         for line in line_it:
             status = self._recv_line(line)
             if status == self.R_END:
@@ -545,7 +553,7 @@ class IGLsClient(object):
     def _recv_main(self):
         """Receive thread main function. Calls _do_recv() in a loop, optionally
         delaying if a transient error occurs."""
-        self.log.debug('receive thread running.')
+        self.log('receive thread running.', 'debug')
         fail_count = 0
         running = True
         while running:
@@ -554,13 +562,12 @@ class IGLsClient(object):
                 fail_count = 0
             except Exception, e:
                 if not self._is_transient_error(e):
-                    self.log.exception('_do_recv failure')
+                    self.log('_do_recv failure', 'error')
                     break
                 fail_wait = min(RETRY_WAIT_MAX_SECS,
                     RETRY_WAIT_SECS * (2 ** fail_count))
                 fail_count += 1
-                self.log.info('Error: %s: %s (reconnect in %.2fs)',
-                    e.__class__.__name__, e, fail_wait)
+                self.log('%s: %s (reconnect in %.2fs)' % (e.__class__.__name__, e, fail_wait), 'error')
                 self._set_state(STATE_CONNECTING)
                 time.sleep(fail_wait)
 
@@ -568,7 +575,7 @@ class IGLsClient(object):
         self._thread = None
         self._session.clear()
         self._control_url = None
-        self.log.debug('Receive thread exiting')
+        self.log('Receive thread exiting', 'debug')
 
     def _parse_and_raise_status(self, req, line_it):
         """Parse the status part of a control/session create/bind response.
@@ -582,7 +589,7 @@ class IGLsClient(object):
             raise SessionExpired()
         if not status.startswith('OK'):
             raise TransientError('%s %s: %s' %
-                (status, next(line_it), next(line_it)))
+                                 (status, next(line_it), next(line_it)))
 
     def _parse_session_info(self, line_it):
         """Parse the headers from `fp` sent immediately following an OK
@@ -697,10 +704,12 @@ class IGLsClient(object):
                 size += len(encoded) + 2
                 self._control_queue.popleft()
 
-        req = self._post('control.txt', data='\r\n'.join(bits),
-            base_url=self.control_url)
+        req = self._post('control.txt',
+                         data='\r\n'.join(bits),
+                         base_url=self.control_url)
+
         self._parse_and_raise_status(req, req.iter_lines())
-        self.log.debug('Control message successful.')
+        self.log('Control message successful.', 'debug')
 
     def _enqueue_table_create(self, table):
         self._send_control({
@@ -737,7 +746,6 @@ class IGLsClient(object):
     def delete(self, table):
         """Instruct the server and LsClient to discard the given table."""
         with self._lock:
-            #self._table_map.pop(table_id, None)
             self._send_control({
                 'LS_op': OP_DELETE,
                 'LS_table': table.table_id
