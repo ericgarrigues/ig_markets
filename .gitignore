@@ -1,5 +1,5 @@
 *.pyc
+*egg
 *.egg-info
 MANIFEST
-Logs
 build
