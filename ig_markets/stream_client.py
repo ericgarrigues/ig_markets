@@ -1,12 +1,12 @@
 #
 # Copyright 2012, the py-lightstreamer authors
-# 
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-# 
+#
 #    http://www.apache.org/licenses/LICENSE-2.0
-# 
+#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -17,9 +17,10 @@
 """
 from __future__ import absolute_import
 
+import os
 import Queue
 import collections
-# import logging
+import logging
 import socket
 import threading
 import time
@@ -32,17 +33,22 @@ import requests
 
 import datetime
 
+BTM_LOG_PATH = "/home/btm/logs"
+
 date_time = datetime.datetime.now()
 
-# if not os.path.exists("Logs"):
-#     os.makedirs("Logs")
-#
-# LOG = logging.getLogger('lightstreamer')
-# hdlr = logging.FileHandler('Logs/log-%s.log' % date_time.strftime('%Y-%m-%d_%H-%M-%S'))
-# formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-# hdlr.setFormatter(formatter)
-# LOG.addHandler(hdlr)
-# LOG.setLevel(logging.DEBUG)
+if not os.path.exists(BTM_LOG_PATH):
+    os.makedirs(BTM_LOG_PATH)
+
+LOG = logging.getLogger('lightstreamer')
+fh = os.path.join(BTM_LOG_PATH,
+                  'streamer-%s.log' % date_time.strftime('%Y-%m-%d_%H-%M-%S'))
+hdlr = logging.FileHandler(fh)
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+
+hdlr.setFormatter(formatter)
+LOG.addHandler(hdlr)
+LOG.setLevel(logging.DEBUG)
 
 
 # Minimum time to wait between retry attempts, in seconds. Subsequent
@@ -194,9 +200,9 @@ def run_and_log(func, *args, **kwargs):
     try:
         func(*args, **kwargs)
         return True
-    except Exception, e:
-        print e
-        # LOG.exception('While invoking %r(*%r, **%r)', func, args, kwargs)
+    except Exception:
+        # print e
+        LOG.exception('While invoking %r(*%r, **%r)', func, args, kwargs)
 
 
 def dispatch(lst, *args, **kwargs):
@@ -287,16 +293,18 @@ class Table(object):
 
     The table is registed with the given `LsClient` during construction.
     """
-    on_update = event_property('on_update',
-        """Fired when the client receives a new update message (i.e. data).
-        Receives 2 arguments: item_id, and msg.""")
-    on_end_of_snapshot = event_property('on_end_of_snapshot',
-        """Fired when the server indicates the first set of update messages
-        representing a snapshot have been sent successfully.""")
+    on_update_msg = """Fired when the client receives a new update message
+    (i.e. data). Receives 2 arguments: item_id, and msg."""
+
+    on_end_msg = """Fired when the server indicates the first set of update
+    messages representing a snapshot have been sent successfully."""
+
+    on_update = event_property('on_update', on_update_msg)
+    on_end_of_snapshot = event_property('on_end_of_snapshot', on_end_msg)
 
     def __init__(self, client, item_ids, mode=None, data_adapter=None,
-            buffer_size=None, item_factory=None, max_frequency=None,
-            schema=None, selector=None, silent=False, snapshot=False):
+                 buffer_size=None, item_factory=None, max_frequency=None,
+                 schema=None, selector=None, silent=False, snapshot=False):
         """Create a new table.
 
         `data_adapter`: optional data adapter name.
@@ -310,7 +318,7 @@ class Table(object):
         `max_frequency`: requested maximum updates per second for table items;
             set to "unfiltered" to forward all messages without loss (only
             valid for MODE_MERGE, MODE_DISTINCT, MODE_COMMAND), set to 0 for
-            "no frequency limit", or integer number of updates per second. 
+            "no frequency limit", or integer number of updates per second.
         `snapshot` indicates whether server should send a snapshot at
             subscription time. False for no, True for yes, or integer >= 1 for
             'yes, but only send N items.
@@ -320,7 +328,8 @@ class Table(object):
             received, expected to return some object representing the row.
             Defaults to tuple().
         """
-        assert mode in (None, MODE_RAW, MODE_MERGE, MODE_DISTINCT, MODE_COMMAND)
+        assert mode in (None, MODE_RAW, MODE_MERGE,
+                        MODE_DISTINCT, MODE_COMMAND)
         assert item_ids, 'item_ids required'
         self.client = client
         self.item_ids = item_ids
@@ -350,8 +359,8 @@ class Table(object):
         last = dict(enumerate(self._last_item_map.get(item_id, [])))
         fields = [_decode_field(s, last.get(i)) for i, s in enumerate(item)]
         self._last_item_map[item_id] = fields
-        #self.items[item_id] = self.item_factory(fields)
-        #self.on_update.fire(item_id, self.items[item_id])
+        # self.items[item_id] = self.item_factory(fields)
+        # self.on_update.fire(item_id, self.items[item_id])
         self.on_update.fire(item_id, fields, self.item_ids)
 
 
@@ -367,15 +376,18 @@ class IGLsClient(object):
     create_session() and send_control() calls are completed asynchronously on a
     private thread.
     """
-    on_state = event_property('on_state',
-                              """Subscribe `func` to connection state changes. Sole argument, `state`
-                              is one of the STATE_* constants.""")
+    on_state_msg = """Subscribe `func` to connection state changes.
+    Sole argument, `state` is one of the STATE_* constants."""
 
-    on_heartbeat = event_property('on_heartbeat',
-                                  """Subscribe `func` to heartbeats. The function is called with no
-                                  arguments each time the connection receives any data.""")
+    on_state = event_property('on_state', on_state_msg)
 
-    def __init__(self, work_queue=None, content_length=None, timeout_grace=None, polling_ms=None, debug=False):
+    on_hb_msg = """Subscribe `func` to heartbeats. The function is called with
+    no arguments each time the connection receives any data."""
+
+    on_heartbeat = event_property('on_heartbeat', on_hb_msg)
+
+    def __init__(self, work_queue=None, content_length=None,
+                 timeout_grace=None, polling_ms=None, debug=False):
 
         """Create an instance using `base_url` as the root of the Lightstreamer
         server. If `timeout_grace` is given, indicates number of seconds grace
@@ -410,7 +422,8 @@ class IGLsClient(object):
 
     def get_account_info(self, username, password, api_key, api_url):
         r = requests.post(self.__get_url(api_url),
-                          data=json.dumps(self.__get_payload(username, password)),
+                          data=json.dumps(self.__get_payload(username,
+                                                             password)),
                           headers=self.__get_headers(api_key))
 
         cst = r.headers['cst']
@@ -472,7 +485,7 @@ class IGLsClient(object):
         url = urlparse.urljoin(base_url or self.base_url, suffix)
         try:
             return requests.post(url, data=data)
-        
+
         except urllib2.HTTPError, e:
             self.log('HTTP %d for %r' % (e.getcode(), url), 'error')
             return e
@@ -513,7 +526,8 @@ class IGLsClient(object):
             self.log('Received server probe.', 'debug')
             return self.R_OK
         elif line.startswith('LOOP'):
-            self.log('Server indicated length exceeded; reconnecting.', 'debug')
+            self.log('Server indicated length exceeded; reconnecting.',
+                     'debug')
             return self.R_RECONNECT
         elif line.startswith('END'):
             cause = CAUSE_MAP.get(line.split()[-1], line)
@@ -530,12 +544,14 @@ class IGLsClient(object):
         self.log('Attempting to connect..', 'debug')
         self._set_state(STATE_CONNECTING)
         sessionnum = encode_dict({'LS_session': self._session['SessionId']})
-        req = requests.post(self.control_url+"bind_session.txt", data=sessionnum, stream=True)
+        req = requests.post(self.control_url+"bind_session.txt",
+                            data=sessionnum, stream=True)
         line_it = req.iter_lines(chunk_size=1)
         self._parse_and_raise_status(req, line_it)
         self._parse_session_info(line_it)
         self._set_state(STATE_CONNECTED)
-        self.log('Server reported Content-length: %s' % req.headers.get('Content-length'), 'debug')
+        self.log('Server reported Content-length: %s' %
+                 req.headers.get('Content-length'), 'debug')
 
         for line in line_it:
             status = self._recv_line(line)
@@ -565,9 +581,10 @@ class IGLsClient(object):
                     self.log('_do_recv failure', 'error')
                     break
                 fail_wait = min(RETRY_WAIT_MAX_SECS,
-                    RETRY_WAIT_SECS * (2 ** fail_count))
+                                RETRY_WAIT_SECS * (2 ** fail_count))
                 fail_count += 1
-                self.log('%s: %s (reconnect in %.2fs)' % (e.__class__.__name__, e, fail_wait), 'error')
+                self.log('%s: %s (reconnect in %.2fs)' %
+                         (e.__class__.__name__, e, fail_wait), 'error')
                 self._set_state(STATE_CONNECTING)
                 time.sleep(fail_wait)
 
@@ -606,8 +623,9 @@ class IGLsClient(object):
                 if blanks == 2:
                     break
 
+        ctrl_addr = 'ControlAddress'
         self.control_url = _replace_url_host(self.base_url,
-                                             self._session.get('ControlAddress'))
+                                             self._session.get(ctrl_addr))
         assert self._session, 'Session parse failure'
 
     def _create_session_impl(self, dct):
@@ -636,8 +654,9 @@ class IGLsClient(object):
         self._thread.setDaemon(True)
         self._thread.start()
 
-    def create_session(self, username=None, password=None, api_key=None, api_url=None, adapter_set='',
-                       max_bandwidth_kbps=None, content_length=None, keepalive_ms=None):
+    def create_session(self, username=None, password=None, api_key=None,
+                       api_url=None, adapter_set='', max_bandwidth_kbps=None,
+                       content_length=None, keepalive_ms=None):
         """Begin authenticating with Lightstreamer and start the receive
         thread.
 
@@ -657,7 +676,11 @@ class IGLsClient(object):
             default is used if unspecified.
         """
         if username and password and api_key and api_url:
-            lsendpoint, account_id, account_xst = self.get_account_info(username, password, api_key, api_url)
+            acc_info = self.get_account_info(username, password,
+                                             api_key, api_url)
+            lsendpoint, account_id, account_xst = acc_info
+            # lsendpoint, account_id, account_xst = \
+            # self.get_account_info(username, password, api_key, api_url)
             self.base_url = self.__get_base_url(lsendpoint)
 
             assert self._state == STATE_DISCONNECTED,\
@@ -760,4 +783,3 @@ class IGLsClient(object):
         self._send_control({
             'LS_op': OP_DESTROY
         })
-
